@@ -52,9 +52,6 @@ class Lang2Lang:
             self.distances[lang1][lang2] = values
         return values
 
-def get_phonemic_distance(lang1, lang2):
-    pass
-
 def get_lexicon(word_list, model) -> str:
     """
     Returns the directory of the best model for the given word list file.
