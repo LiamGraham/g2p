@@ -8,6 +8,7 @@ import glob
 PHOIBLE_PATH = "/home/liam/university/2020/engg4801/g2p/phoible.csv"
 DATA_PATH = "/home/liam/university/2020/engg4801/g2p/data"
 
+
 def parse_data(phoible_path, data_path):
     """
     Extracts phonemic inventories of langauges in phoible.csv. Each inventory is stored in a file with name
@@ -30,7 +31,10 @@ def parse_data(phoible_path, data_path):
             with open(f"{data_path}/{iso_code}_{inv_id}.phon", "a+") as f:
                 f.write(phones)
 
-def clean_data(path):
+def clean_inventory(path: str):
+    """
+    Remove duplicate phones for inventory (.phon) file at given path.
+    """
     print("Cleaning", path)
     with open(path, "r") as f:
         lines = f.readlines()
@@ -41,18 +45,47 @@ def clean_data(path):
     with open(path, "w") as f:
         f.writelines(cleaned)
 
-def clean_all(data_path):
+
+def convert_to_spaces(path: str):
+    """
+    Convert file at given path from new-line separated to space separated.
+    """
+    print("Cleaning", path)
+    with open(path, "r") as f:
+        contents = f.read()
+    cleaned = contents.replace("\n", " ")[:-1]
+    with open(path, "w") as f:
+        f.writelines(cleaned)
+
+
+def clean_all(data_path: str):
+    """
+    Clean all .phon files in directory at given path.
+    """
     data_files = glob.glob(os.path.join(data_path, "*"))
     for data_file in data_files:
-        clean_data(data_file)
+        clean_inventory(data_file)
 
 
-def clear_dir(path):
+def convert_all(data_path: str):
+    """
+    Convert all .phon files in directory at given path to space-separated.
+    """
+    data_files = glob.glob(os.path.join(data_path, "*"))
+    for data_file in data_files:
+        convert_to_spaces(data_file)
+
+
+def clear_dir(path: str):
+    """
+    Remove all files in directory at given path.
+    """
     files = glob.glob(os.path.join(path, "*"))
     for f in files:
         os.remove(f)
 
 
 if __name__ == "__main__":
-    #parse_data(PHOIBLE_PATH, DATA_PATH)
-    clean_all(DATA_PATH)
+    # parse_data(PHOIBLE_PATH, DATA_PATH)
+    # clean_all(DATA_PATH)
+    convert_all(DATA_PATH)
