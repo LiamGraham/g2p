@@ -101,7 +101,20 @@ class Mapping:
         result = carmel(sh.echo(f'"{phoneme}"'), "-silkOQ", 1, self.map_path).split(" ")
         closest = result[0]
         distance = float(result[1])
-        return closest, distance        
+        return closest, distance       
+
+    def convert_lexicon(self, list_path: str, out_path: str) -> None:
+        """
+        Maps the pronunciations of each of the words in the lexicon at the given path to pronunications
+        in target language (i.e. using phonemes in the output inventory), storing the resulting lexicon
+        at the given output path.
+        """
+        with open(out_path, "w") as out_file:
+            with open(list_path, "r") as list_file:
+                for line in list_file:
+                    word, pron = line.split(" ")
+                    new_pron = "".join([self.get_closest(phon) for phon in pron])
+                    out_file.write(f"{word} {new_pron}\n")
 
     def _save_mappings(self) -> None:
         """
