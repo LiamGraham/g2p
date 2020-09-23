@@ -5,6 +5,7 @@ Given a word list in a target language for which no specific model exists, find 
 import sh
 import sys
 import os
+import re
 from typing import Dict, Set, List, Tuple
 
 
@@ -21,6 +22,9 @@ OUTPUT_PATH = "/home/liam/university/2020/engg4801/g2p/output"
 
 # phonemic distance between a target language (given the phonemic inventory of that language) and a langauge in the model set
 
+
+class LexiconError(Exception):
+    pass
 
 class Lang2Lang:
     CONSTS = {"None": None, "+": True, "-": False}
@@ -78,7 +82,7 @@ class Transition:
         return self.__repr__()
 
 
-class Mapping:
+class Mapper:
     """
     Uses a single-state WFST to map phonemes from an input inventory to those in an output inventory.
     """
@@ -91,29 +95,27 @@ class Mapping:
         self.map_path = map_path
         self._save_mappings()
 
-    def get_closest(self, phoneme: str) -> Tuple[str, float]:
+    def convert_pronunciation(self, pron: str) -> Tuple[str, float]:
         """
-        Returns the phoneme in the output inventory, as well as the corresponding distance, that is most similar to the given phoneme
-        in the input inventory.
+        Returns the pronunciation using phonemes in the output inventory that best
+        corresponds to the given pronunciation. 
         """
-        if phoneme not in self.input:
-            raise ValueError(f"'{phoneme}' is not in the input inventory")
-        result = carmel(sh.echo(f'"{phoneme}"'), "-silkOQ", 1, self.map_path).split(" ")
-        closest = result[0]
-        distance = float(result[1])
-        return closest, distance       
-
-    def convert_lexicon(self, list_path: str, out_path: str) -> None:
+        formatted = " ".join([f'"{phon}"' for phon in pron.split(" ")])
+        result = carmel(sh.echo(formatted), "-silkOQW", 1, self.map_path).strip()
+        return result      
+    
+    def convert_lexicon(self, lexicon_path: str, out_path: str) -> None:
         """
         Maps the pronunciations of each of the words in the lexicon at the given path to pronunications
         in target language (i.e. using phonemes in the output inventory), storing the resulting lexicon
         at the given output path.
         """
         with open(out_path, "w") as out_file:
-            with open(list_path, "r") as list_file:
+            with open(lexicon_path, "r") as list_file:
                 for line in list_file:
-                    word, pron = line.split(" ")
-                    new_pron = "".join([self.get_closest(phon) for phon in pron])
+                    word, pron = line.strip().split("\t")
+                    new_pron = self.convert_pronunciation(pron)
+                    print(word, new_pron)
                     out_file.write(f"{word} {new_pron}\n")
 
     def _save_mappings(self) -> None:
@@ -141,12 +143,30 @@ class Mapping:
                 yield Transition(self.STATE_NAME, in_label, out_label, float(weight))
 
 
-def get_lexicon(word_list, model) -> str:
+def generate_lexicon(wlist_path: str, model_path: str, out_path: str) -> str:
     """
-    Returns the directory of the best model for the given word list file.
+    Generates and saves lexicon using the word list and model at the given paths. 
     """
-    return phon("--word_list", word_list, "--model", model)
+    command = phon("--word_list", wlist_path, "--model", model_path)
+    if command.exit_code != 0:
+        raise LexiconError(f"Could not create lexicon for {wlist_path}") 
+    with open(out_path, "w") as f:
+        f.write(str(command))
 
+
+def extract_inventory(lexicon_path: str, out_path: str):
+    """
+    Extracts the phonemic inventory from the pronunciation lexicon at the given path and
+    saves it at the given out path.
+    """
+    inventory = set()
+    with open(lexicon_path, "r") as lexicon:
+        for line in lexicon:
+            word, pron = re.split("\t", line)
+            phonemes = [phon.strip() for phon in pron.split(" ")]
+            inventory.update(phonemes)
+    with open(out_path, "w") as inv:
+        inv.write(" ".join(inventory))
 
 def get_inventory(path: str) -> Set[str]:
     """
@@ -158,11 +178,11 @@ def get_inventory(path: str) -> Set[str]:
 
 
 if __name__ == "__main__":
-    #mapping = Mapping(DATA_PATH + "/eng_2176.phon", DATA_PATH + "/deu_2184.phon", OUTPUT_PATH + "/eng_deu.wfst")
-    #phonemes = ["θ", "ɪ", "ŋ", "kʰ"]
-    
-    mapping = Mapping(DATA_PATH + "/ben_2162.phon", DATA_PATH + "/eng_2176.phon", OUTPUT_PATH + "/eng_deu.wfst")
-    phonemes = ["d̪ʱ", "a", "k", "a"]
-    for phon in phonemes:
-        closest, _ = mapping.get_closest(phon)
-        print(closest)
+    print("Generating lexicon")
+    generate_lexicon("lists/eng_small.wlist", "../anylang/high_resource/high_resource_openfst/eng.wfst", "lexicons/eng.lex")
+    print("Extracting inventory")
+    extract_inventory("lexicons/eng.lex", "inventories/eng.phon")
+    print("Creating mapper")
+    mapper = Mapper("inventories/eng.phon", DATA_PATH + "/deu_2184.phon", OUTPUT_PATH + "/eng_deu.wfst")
+    print("Converting lexicon")
+    mapper.convert_lexicon("lexicons/eng.lex", "lexicons/eng_deu.lex")
