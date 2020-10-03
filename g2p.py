@@ -177,12 +177,22 @@ def get_inventory(path: str) -> Set[str]:
     return inventory
 
 
+def trim_word_list(wlist_path, out_path, value):
+    with open(wlist_path, "r") as original:
+        with open(out_path, "w") as new:
+            for i, line in enumerate(original):
+                if i % value == 0:
+                    new.write(line)
+
+
 if __name__ == "__main__":
     print("Generating lexicon")
-    generate_lexicon("lists/eng_small.wlist", "../anylang/high_resource/high_resource_openfst/eng.wfst", "lexicons/eng.lex")
+    generate_lexicon("lists/rus_small.wlist", "../anylang/high_resource/high_resource_openfst/bul.wfst", "lexicons/rus_bul.lex")
+    generate_lexicon("lists/rus_small.wlist", "../anylang/high_resource/high_resource_openfst/rus.wfst", "lexicons/rus.lex")
     print("Extracting inventory")
-    extract_inventory("lexicons/eng.lex", "inventories/eng.phon")
+    extract_inventory("lexicons/rus_bul.lex", "inventories/bul.phon")
+    extract_inventory("lexicons/rus.lex", "inventories/rus.phon")
     print("Creating mapper")
-    mapper = Mapper("inventories/eng.phon", DATA_PATH + "/deu_2184.phon", OUTPUT_PATH + "/eng_deu.wfst")
+    mapper = Mapper("inventories/bul.phon", "inventories/rus.phon", OUTPUT_PATH + "/bul_rus.wfst")
     print("Converting lexicon")
-    mapper.convert_lexicon("lexicons/eng.lex", "lexicons/eng_deu.lex")
+    mapper.convert_lexicon("lexicons/rus_bul.lex", "lexicons/rus_rus.lex")
