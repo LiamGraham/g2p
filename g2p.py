@@ -7,18 +7,21 @@ import sys
 import os
 import re
 from typing import Dict, Set, List, Tuple
-
+from uuid import uuid4
 
 phon = sh.phonetisaurus_apply
 carmel = sh.carmel
 
-MODEL_DIR = "/home/liam/university/2020/engg4801/anylang/high_resource/high_resource_openfst/"
+MODEL_DIR = "/root/uni/anylang/high_resource/high_resource_openfst/"
 MODELS = [MODEL_DIR + model for  model in os.listdir(MODEL_DIR)]
 
-LANG_PATH = "/home/liam/university/2020/engg4801/anylang/lang2lang/lang.dists"
-PHON_PATH = "/home/liam/university/2020/engg4801/anylang/phon2phon/ipa.bitdist.wfst"
-DATA_PATH = "/home/liam/university/2020/engg4801/g2p/data"
-OUTPUT_PATH = "/home/liam/university/2020/engg4801/g2p/output"
+LANG_PATH = "/root/uni/anylang/lang2lang/lang.dists"
+PHON_PATH = "/root/uni/anylang/phon2phon/ipa.bitdist.wfst"
+DATA_PATH = "data"
+INV_PATH = "/root/uni/g2p/inventories"
+LEX_PATH = "/root/uni/g2p/lexicons"
+MAPPER_PATH = "/root/uni/g2p/mappers"
+OUTPUT_PATH = "/root/uni/g2p/output"
 
 # phonemic distance between a target language (given the phonemic inventory of that language) and a langauge in the model set
 
@@ -86,7 +89,7 @@ class Mapper:
     """
     Uses a single-state WFST to map phonemes from an input inventory to those in an output inventory.
     """
-    TABLE_PATH = "/home/liam/university/2020/engg4801/anylang/phon2phon/ipa.bitdist.table"
+    TABLE_PATH = "/root/uni/anylang/phon2phon/ipa.bitdist.table"
     STATE_NAME = "S"
 
     def __init__(self, in_path: str, out_path: str, map_path: str):
@@ -184,15 +187,31 @@ def trim_word_list(wlist_path, out_path, value):
                 if i % value == 0:
                     new.write(line)
 
+def convert(word_list, inventory, model):
+    base_lex_path = os.path.join(LEX_PATH, uuid4().hex)
+    high_inv_path = os.path.join(INV_PATH, uuid4().hex)
+    mapper_path = os.path.join(MAPPER_PATH, uuid4().hex)
+    output_path = os.path.join(OUTPUT_PATH, uuid4().hex)
 
-if __name__ == "__main__":
+    generate_lexicon(word_list, model, base_lex_path)
+    extract_inventory(base_lex_path, high_inv_path)
+
+    mapper = Mapper(high_inv_path, inventory, mapper_path)
+    mapper.convert_lexicon(base_lex_path, output_path)
+    return output_path
+
+
+def example():
     print("Generating lexicon")
-    generate_lexicon("lists/rus_small.wlist", "../anylang/high_resource/high_resource_openfst/bul.wfst", "lexicons/rus_bul.lex")
-    generate_lexicon("lists/rus_small.wlist", "../anylang/high_resource/high_resource_openfst/rus.wfst", "lexicons/rus.lex")
+    generate_lexicon("lists/rus_small.wlist", "/root/uni/anylang/high_resource/high_resource_openfst/bul.wfst", "lexicons/rus_bul.lex")
+    generate_lexicon("lists/rus_small.wlist", "/root/uni/anylang/high_resource/high_resource_openfst/rus.wfst", "lexicons/rus.lex")
     print("Extracting inventory")
     extract_inventory("lexicons/rus_bul.lex", "inventories/bul.phon")
     extract_inventory("lexicons/rus.lex", "inventories/rus.phon")
     print("Creating mapper")
-    mapper = Mapper("inventories/bul.phon", "inventories/rus.phon", OUTPUT_PATH + "/bul_rus.wfst")
+    mapper = Mapper("inventories/bul.phon", "inventories/rus.phon", MAPPER_PATH + "/bul_rus.wfst")
     print("Converting lexicon")
     mapper.convert_lexicon("lexicons/rus_bul.lex", "lexicons/rus_rus.lex")
+
+if __name__ == "__main__":
+    example()

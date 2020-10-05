@@ -14,8 +14,6 @@ cd
 echo 'export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/lib:/usr/local/lib/fst' >> ~/.bash_rc
 source ~/.bashrc
 
-mkdir tmp
-cd tmp
 git clone https://github.com/AdolfVonKleist/Phonetisaurus.git
 cd Phonetisaurus
 sudo pip3 install pybindgen
