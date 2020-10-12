@@ -8,26 +8,38 @@ import os
 import re
 from typing import Dict, Set, List, Tuple
 from uuid import uuid4
+import glob
 
 phon = sh.phonetisaurus_apply
 carmel = sh.carmel
 
-MODEL_DIR = "/root/uni/anylang/high_resource/high_resource_openfst/"
-MODELS = [MODEL_DIR + model for  model in os.listdir(MODEL_DIR)]
 
 LANG_PATH = "/root/uni/anylang/lang2lang/lang.dists"
 PHON_PATH = "/root/uni/anylang/phon2phon/ipa.bitdist.wfst"
 DATA_PATH = "data"
-INV_PATH = "/root/uni/g2p/inventories"
-LEX_PATH = "/root/uni/g2p/lexicons"
-MAPPER_PATH = "/root/uni/g2p/mappers"
-OUTPUT_PATH = "/root/uni/g2p/output"
+INV_PATH = "/root/uni/g2p/g2p/inventories"
+LEX_PATH = "/root/uni/g2p/g2p/lexicons"
+MAPPER_PATH = "/root/uni/g2p/g2p/mappers"
+OUTPUT_PATH = "/root/uni/g2p/g2p/output"
 
 # phonemic distance between a target language (given the phonemic inventory of that language) and a langauge in the model set
 
 
 class LexiconError(Exception):
     pass
+
+
+class PronEntry:
+
+    def __init__(self, word, pron):
+        self.word = word
+        self.pron = pron
+
+    def __repr__(self):
+        return f"{self.word} {self.pron}"
+
+    def __str__(self):
+        return self.__repr__()
 
 class Lang2Lang:
     CONSTS = {"None": None, "+": True, "-": False}
@@ -66,6 +78,20 @@ class Lang2Lang:
             self.distances[lang1][lang2] = values
         return values
 
+    def get_all(self, threshold: float=1.0):
+        """
+        Returns all pairs of (different) languages with distances less than or equal to the given threshold. 
+        """
+        with open(self.path, "r") as f:
+            # Skip column names row
+            f.readline()
+            for line in f:
+                columns = line.strip().split("\t")
+                lang1 = columns[0]
+                lang2 = columns[1]
+                dist = float(columns[2])
+                if dist <= threshold and lang1 != lang2:
+                    yield (lang1, lang2, dist)
 
 class Transition:
     """
@@ -107,19 +133,17 @@ class Mapper:
         result = carmel(sh.echo(formatted), "-silkOQW", 1, self.map_path).strip()
         return result      
     
-    def convert_lexicon(self, lexicon_path: str, out_path: str) -> None:
+    def convert_lexicon(self, lexicon_path: str) -> None:
         """
         Maps the pronunciations of each of the words in the lexicon at the given path to pronunications
         in target language (i.e. using phonemes in the output inventory), storing the resulting lexicon
         at the given output path.
         """
-        with open(out_path, "w") as out_file:
-            with open(lexicon_path, "r") as list_file:
-                for line in list_file:
-                    word, pron = line.strip().split("\t")
-                    new_pron = self.convert_pronunciation(pron)
-                    print(word, new_pron)
-                    out_file.write(f"{word} {new_pron}\n")
+        with open(lexicon_path, "r") as list_file:
+            for line in list_file:
+                word, pron = line.strip().split("\t")
+                new_pron = self.convert_pronunciation(pron)
+                yield PronEntry(word, new_pron)
 
     def _save_mappings(self) -> None:
         """
@@ -150,6 +174,7 @@ def generate_lexicon(wlist_path: str, model_path: str, out_path: str) -> str:
     """
     Generates and saves lexicon using the word list and model at the given paths. 
     """
+
     command = phon("--word_list", wlist_path, "--model", model_path)
     if command.exit_code != 0:
         raise LexiconError(f"Could not create lexicon for {wlist_path}") 
@@ -180,25 +205,16 @@ def get_inventory(path: str) -> Set[str]:
     return inventory
 
 
-def trim_word_list(wlist_path, out_path, value):
-    with open(wlist_path, "r") as original:
-        with open(out_path, "w") as new:
-            for i, line in enumerate(original):
-                if i % value == 0:
-                    new.write(line)
-
 def convert(word_list, inventory, model):
     base_lex_path = os.path.join(LEX_PATH, uuid4().hex)
     high_inv_path = os.path.join(INV_PATH, uuid4().hex)
     mapper_path = os.path.join(MAPPER_PATH, uuid4().hex)
-    output_path = os.path.join(OUTPUT_PATH, uuid4().hex)
 
     generate_lexicon(word_list, model, base_lex_path)
     extract_inventory(base_lex_path, high_inv_path)
 
     mapper = Mapper(high_inv_path, inventory, mapper_path)
-    mapper.convert_lexicon(base_lex_path, output_path)
-    return output_path
+    return mapper.convert_lexicon(base_lex_path)
 
 
 def example():
@@ -211,7 +227,16 @@ def example():
     print("Creating mapper")
     mapper = Mapper("inventories/bul.phon", "inventories/rus.phon", MAPPER_PATH + "/bul_rus.wfst")
     print("Converting lexicon")
-    mapper.convert_lexicon("lexicons/rus_bul.lex", "lexicons/rus_rus.lex")
+    result = mapper.convert_lexicon("lexicons/rus_bul.lex")
 
 if __name__ == "__main__":
-    example()
+    models = []
+    for path in MODELS:
+        models.append(os.path.basename(path).split(".")[0])
+    
+    lang2lang = Lang2Lang(LANG_PATH)
+    lowest = lang2lang.get_all(0.25)
+    for values in lowest:
+        lang1, lang2, dist = values
+        if lang1 in models and lang2 in models:
+            print(values)
