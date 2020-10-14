@@ -1,3 +1,5 @@
 phoible.csv
 __pycache__/
-output/
+inventories/
+mappers/
+lexicons/
