@@ -31,6 +31,7 @@ def parse_data(phoible_path, data_path):
             with open(f"{data_path}/{iso_code}_{inv_id}.phon", "a+") as f:
                 f.write(phones)
 
+
 def clean_inventory(path: str):
     """
     Remove duplicate phones for inventory (.phon) file at given path.

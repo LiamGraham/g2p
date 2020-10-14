@@ -34,5 +34,6 @@ def get_candidates(threshold):
             candidates.append(values)
     return candidates
 
+
 if __name__ == "__main__":
     get_candidates(0.25)

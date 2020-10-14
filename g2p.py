@@ -20,9 +20,6 @@ DATA_PATH = "data"
 INV_PATH = "/root/uni/g2p/g2p/inventories"
 LEX_PATH = "/root/uni/g2p/g2p/lexicons"
 MAPPER_PATH = "/root/uni/g2p/g2p/mappers"
-OUTPUT_PATH = "/root/uni/g2p/g2p/output"
-
-# phonemic distance between a target language (given the phonemic inventory of that language) and a langauge in the model set
 
 
 class LexiconError(Exception):
@@ -83,7 +80,7 @@ class Lang2Lang:
         Returns all pairs of (different) languages with distances less than or equal to the given threshold. 
         """
         with open(self.path, "r") as f:
-            # Skip column names row
+            # Skip initial column names row
             f.readline()
             for line in f:
                 columns = line.strip().split("\t")
@@ -109,6 +106,15 @@ class Transition:
 
     def __str__(self):
         return self.__repr__()
+
+
+def get_inventory(path: str) -> Set[str]:
+    """
+    Returns the set of phonemes stored in the .phon file at the given path.
+    """
+    with open(path, "r") as f:
+        inventory = set(f.read().split(" "))
+    return inventory
 
 
 class Mapper:
@@ -170,73 +176,55 @@ class Mapper:
                 yield Transition(self.STATE_NAME, in_label, out_label, float(weight))
 
 
-def generate_lexicon(wlist_path: str, model_path: str, out_path: str) -> str:
-    """
-    Generates and saves lexicon using the word list and model at the given paths. 
-    """
+class Converter:
+    INV_PATH = "/root/uni/g2p/g2p/inventories"
+    LEX_PATH = "/root/uni/g2p/g2p/lexicons"
+    MAPPER_PATH = "/root/uni/g2p/g2p/mappers"
 
-    command = phon("--word_list", wlist_path, "--model", model_path)
-    if command.exit_code != 0:
-        raise LexiconError(f"Could not create lexicon for {wlist_path}") 
-    with open(out_path, "w") as f:
-        f.write(str(command))
+    def __init__(self, word_list: str, inventory: str, model: str):
+        """
+        Creates a new Converter to generate a lexicon for the word list and inventory at the given paths
+        """
+        self.word_list = word_list
+        self.inventory = inventory 
+        self.model = model
 
+        self._high_inv_path = os.path.join(self.INV_PATH, uuid4().hex)
+        self._base_lex_path = os.path.join(self.LEX_PATH, uuid4().hex)
 
-def extract_inventory(lexicon_path: str, out_path: str):
-    """
-    Extracts the phonemic inventory from the pronunciation lexicon at the given path and
-    saves it at the given out path.
-    """
-    inventory = set()
-    with open(lexicon_path, "r") as lexicon:
-        for line in lexicon:
-            word, pron = re.split("\t", line)
-            phonemes = [phon.strip() for phon in pron.split(" ")]
-            inventory.update(phonemes)
-    with open(out_path, "w") as inv:
-        inv.write(" ".join(inventory))
+        self._generate_lexicon()
+        self._extract_inventory()
 
-def get_inventory(path: str) -> Set[str]:
-    """
-    Returns the set of phonemes stored in the .phon file at the given path.
-    """
-    with open(path, "r") as f:
-        inventory = set(f.read().split(" "))
-    return inventory
+        mapper_path = os.path.join(self.MAPPER_PATH, uuid4().hex)
+        self.mapper = Mapper(self._high_inv_path, inventory, mapper_path)
 
+    def _generate_lexicon(self) -> str:
+        """
+        Generates and saves lexicon using the word list and model at the given paths. 
+        """
+        command = phon("--word_list", self.word_list, "--model", self.model)
+        if command.exit_code != 0:
+            raise LexiconError(f"Could not create lexicon for {self.word_list}") 
+        with open(self._base_lex_path, "w") as f:
+            f.write(str(command))
 
-def convert(word_list, inventory, model):
-    base_lex_path = os.path.join(LEX_PATH, uuid4().hex)
-    high_inv_path = os.path.join(INV_PATH, uuid4().hex)
-    mapper_path = os.path.join(MAPPER_PATH, uuid4().hex)
+    def _extract_inventory(self):
+        """
+        Extracts the phonemic inventory from the pronunciation lexicon at the given path and
+        saves it at the given out path.
+        """
+        inventory = set()
+        with open(self._base_lex_path, "r") as lexicon:
+            for line in lexicon:
+                _, pron = re.split("\t", line)
+                phonemes = [phon.strip() for phon in pron.split(" ")]
+                inventory.update(phonemes)
+        with open(self._high_inv_path, "w") as inv:
+            inv.write(" ".join(inventory))
 
-    generate_lexicon(word_list, model, base_lex_path)
-    extract_inventory(base_lex_path, high_inv_path)
+    def convert(self):
+        return self.mapper.convert_lexicon(self._base_lex_path)
 
-    mapper = Mapper(high_inv_path, inventory, mapper_path)
-    return mapper.convert_lexicon(base_lex_path)
-
-
-def example():
-    print("Generating lexicon")
-    generate_lexicon("lists/rus_small.wlist", "/root/uni/anylang/high_resource/high_resource_openfst/bul.wfst", "lexicons/rus_bul.lex")
-    generate_lexicon("lists/rus_small.wlist", "/root/uni/anylang/high_resource/high_resource_openfst/rus.wfst", "lexicons/rus.lex")
-    print("Extracting inventory")
-    extract_inventory("lexicons/rus_bul.lex", "inventories/bul.phon")
-    extract_inventory("lexicons/rus.lex", "inventories/rus.phon")
-    print("Creating mapper")
-    mapper = Mapper("inventories/bul.phon", "inventories/rus.phon", MAPPER_PATH + "/bul_rus.wfst")
-    print("Converting lexicon")
-    result = mapper.convert_lexicon("lexicons/rus_bul.lex")
 
 if __name__ == "__main__":
-    models = []
-    for path in MODELS:
-        models.append(os.path.basename(path).split(".")[0])
-    
-    lang2lang = Lang2Lang(LANG_PATH)
-    lowest = lang2lang.get_all(0.25)
-    for values in lowest:
-        lang1, lang2, dist = values
-        if lang1 in models and lang2 in models:
-            print(values)
+    pass
