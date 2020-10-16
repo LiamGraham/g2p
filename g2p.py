@@ -9,6 +9,7 @@ import re
 from typing import Dict, Set, List, Tuple
 from uuid import uuid4
 import glob
+from textdistance import Levenshtein
 
 phon = sh.phonetisaurus_apply
 carmel = sh.carmel
@@ -32,11 +33,22 @@ class PronEntry:
         self.word = word
         self.pron = pron
 
+    def compare(self, other: "PronEntry") -> float:
+        """
+        Returns the normalised Levenshtein distance between the pronunciations
+        of this entry and the given entry. 
+        """
+        longest = max(len(self.pron), len(other.pron))
+        distance = Levenshtein().distance(self.pron, other.pron)
+        norm = distance / longest
+        return norm
+
     def __repr__(self):
         return f"{self.word} {self.pron}"
 
     def __str__(self):
         return self.__repr__()
+
 
 class Lang2Lang:
     CONSTS = {"None": None, "+": True, "-": False}
@@ -224,6 +236,56 @@ class Converter:
 
     def convert(self):
         return self.mapper.convert_lexicon(self._base_lex_path)
+
+
+class Lexicon:
+
+    def __init__(self, path):
+        self.entries = []
+        self.path = path
+        self._load()
+
+    def _load(self):
+        self.entries = []
+        with open(self.path, 'r') as f:
+            for line in f:
+                word, pron = re.split(r"\s", line, maxsplit=1)
+                entry = PronEntry(word, pron)
+                self.entries.append(entry)
+
+    def __len__(self):
+        return len(self.entries)
+
+    def distances(self, other):
+        """
+        Returns the individual distances between each of the entries in this and
+        the given lexicon.
+        """
+        if len(self) != len(other):
+            raise LexiconError("Lengths of lexicons must be equal")
+        values = []
+        for i in range(len(self)):
+            entry1 = self.entries[i]
+            entry2 = other.entries[i]
+            values.append(entry1.compare(entry2))
+        return values
+
+    def compare(self, other: "Lexicon") -> float:
+        """
+        Returns normalised distance between this lexicon and the given lexicon. Lexicons must
+        contain the same words in the same order. 
+        """
+        if len(self) != len(other):
+            raise LexiconError("Lengths of lexicons must be equal")
+        
+        total = 0
+        for i in range(len(self)):
+            entry1 = self.entries[i]
+            entry2 = other.entries[i]
+            total += entry1.compare(entry2)
+        
+        norm = total / len(self)
+        return norm
 
 
 if __name__ == "__main__":
