@@ -29,4 +29,4 @@ def remove_duplicates(wlist_path):
         f.writelines(unique)
 
 if __name__ == "__main__":
-    remove_duplicates("/root/uni/g2p/g2p/lists/ces.wlist")
+    remove_duplicates("/root/uni/g2p/g2p/lists/rus.wlist")

@@ -22,6 +22,7 @@ INV_PATH = "/root/uni/g2p/g2p/inventories"
 LEX_PATH = "/root/uni/g2p/g2p/lexicons"
 MAPPER_PATH = "/root/uni/g2p/g2p/mappers"
 
+NULL_PRON = "-"
 
 class LexiconError(Exception):
     pass
@@ -39,7 +40,12 @@ class PronEntry:
         of this entry and the given entry. 
         """
         longest = max(len(self.pron), len(other.pron))
-        distance = Levenshtein().distance(self.pron, other.pron)
+
+        # Prevent spaces between phonemes being included in calculation
+        pron1 = self.pron.replace(" ", "")
+        pron2 = other.pron.replace(" ", "")
+
+        distance = Levenshtein().distance(pron1, pron2)
         norm = distance / longest
         return norm
 
@@ -89,7 +95,7 @@ class Lang2Lang:
 
     def get_all(self, threshold: float=1.0):
         """
-        Returns all pairs of (different) languages with distances less than or equal to the given threshold. 
+        Returns all pairs of languages (where lang1 != lang2) with distances less than or equal to the given threshold. 
         """
         with open(self.path, "r") as f:
             # Skip initial column names row
@@ -147,22 +153,12 @@ class Mapper:
         Returns the pronunciation using phonemes in the output inventory that best
         corresponds to the given pronunciation. 
         """
+        if pron == NULL_PRON:
+            return NULL_PRON
         formatted = " ".join([f'"{phon}"' for phon in pron.split(" ")])
         result = carmel(sh.echo(formatted), "-silkOQW", 1, self.map_path).strip()
         return result      
     
-    def convert_lexicon(self, lexicon_path: str) -> None:
-        """
-        Maps the pronunciations of each of the words in the lexicon at the given path to pronunications
-        in target language (i.e. using phonemes in the output inventory), storing the resulting lexicon
-        at the given output path.
-        """
-        with open(lexicon_path, "r") as list_file:
-            for line in list_file:
-                word, pron = line.strip().split("\t")
-                new_pron = self.convert_pronunciation(pron)
-                yield PronEntry(word, new_pron)
-
     def _save_mappings(self) -> None:
         """
         Saves mappings for input and output inventories to .wfst file
@@ -209,6 +205,7 @@ class Converter:
 
         mapper_path = os.path.join(self.MAPPER_PATH, uuid4().hex)
         self.mapper = Mapper(self._high_inv_path, inventory, mapper_path)
+        self.lexicon = Lexicon(self._base_lex_path)
 
     def _generate_lexicon(self) -> str:
         """
@@ -216,9 +213,24 @@ class Converter:
         """
         command = phon("--word_list", self.word_list, "--model", self.model)
         if command.exit_code != 0:
-            raise LexiconError(f"Could not create lexicon for {self.word_list}") 
+            raise LexiconError(f"Could not create lexicon for {self.word_list}")
+        entries = str(command).split("\n")
+
+        # Phonetisaurus does not include entries for words which have "no
+        # pronunciation" (i.e. where model did not return pronunciation for the word)
+        # To ensure consistency with the given word list, an "empty" entry (one with a pronunciation of "-") is 
+        # included for each of these words.
+        i = 0
+        with open(self.word_list, "r") as f:
+            for word in f:
+                word = word.strip()
+                entry = entries[i]
+                if not entry.startswith(word):
+                    entries.insert(i, f"{word}\t{NULL_PRON}")
+                i += 1
         with open(self._base_lex_path, "w") as f:
-            f.write(str(command))
+            result = "\n".join(entries)
+            f.write(result)
 
     def _extract_inventory(self):
         """
@@ -235,58 +247,99 @@ class Converter:
             inv.write(" ".join(inventory))
 
     def convert(self):
-        return self.mapper.convert_lexicon(self._base_lex_path)
+        self.lexicon.convert(self.mapper)
+        return self.lexicon
 
 
 class Lexicon:
 
     def __init__(self, path):
-        self.entries = []
+        self.entries = {}
         self.path = path
         self._load()
 
     def _load(self):
-        self.entries = []
+        self.entries = {}
         with open(self.path, 'r') as f:
             for line in f:
-                word, pron = re.split(r"\s", line, maxsplit=1)
+                print(line)
+                word, pron = re.split(r"\s", line.strip(), maxsplit=1)
                 entry = PronEntry(word, pron)
-                self.entries.append(entry)
+                self.entries[word] = entry
 
-    def __len__(self):
-        return len(self.entries)
+    def save(self, path=None):
+        """
+        Saves this lexicon to a file at the specified path, if one is given.
+        Otherwise, saves to the file at the original path. 
+        """
+        if not path:
+            path = self.path
+        print("Saving lexicon to", path)
+        with open(path, "w") as f:
+            for entry in self.entries.values():
+                f.write(str(entry) + "\n")
 
-    def distances(self, other):
+    def convert(self, mapper: Mapper):
+        """
+        Converts each of the pronunciations in this lexicon using the given mapper.
+        """
+        for entry in self.entries.values():
+            entry.pron = mapper.convert_pronunciation(entry.pron)
+
+    def update(self, prons):
+        """
+        Updates the pronunciations of each of the entries in this entries to
+        the given pronunciations (in the given order).
+        """
+        if len(prons) != len(self.entries):
+            raise LexiconError("Number of pronunciations is not equal to the number of entries")
+        for i, pron in enumerate(prons):
+            self.entries[i].pron = pron
+
+    def distances(self, other: "Lexicon"):
         """
         Returns the individual distances between each of the entries in this and
         the given lexicon.
         """
-        if len(self) != len(other):
-            raise LexiconError("Lengths of lexicons must be equal")
-        values = []
-        for i in range(len(self)):
-            entry1 = self.entries[i]
-            entry2 = other.entries[i]
-            values.append(entry1.compare(entry2))
-        return values
+        distances = {}
+        
+        for word in self.entries:
+            if word not in other.entries:
+                continue
+            entry1 = self.entries[word]
+            entry2 = other.entries[word]
+            distances[word] = entry1.compare(entry2)
+        return distances
 
     def compare(self, other: "Lexicon") -> float:
         """
-        Returns normalised distance between this lexicon and the given lexicon. Lexicons must
-        contain the same words in the same order. 
+        Returns normalised distance between this lexicon and the given lexicon.
+        Distances are only calculated for words that are shared between the two lexicons.
         """
-        if len(self) != len(other):
-            raise LexiconError("Lengths of lexicons must be equal")
-        
-        total = 0
-        for i in range(len(self)):
-            entry1 = self.entries[i]
-            entry2 = other.entries[i]
-            total += entry1.compare(entry2)
-        
-        norm = total / len(self)
+        distances = self.distances(other)
+        norm = sum(distances) / len(distances)
         return norm
 
+    def lookup(self, word):
+        """
+        Returns the pronunciation corresponding to the given word.
+        """
+        if word not in self.entries:
+            raise LexiconError(f"'{word}' is not in this lexicon")
+        return self.entries[word]
+
+    def __len__(self):
+        return len(self.entries)
+
+    def __iter__(self):
+        return iter(self.entries.values())
+
+    def __repr__(self):
+        entries = "" if not self.entries else self.entries.values()[0]
+        return f'Lexicon(entries=["{entries}"... ({len(self.entries)} entries)])'
+
+    def __str__(self):
+        return self.__repr__()
 
 if __name__ == "__main__":
     pass
