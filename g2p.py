@@ -41,11 +41,7 @@ class PronEntry:
         """
         longest = max(len(self.pron), len(other.pron))
 
-        # Prevent spaces between phonemes being included in calculation
-        pron1 = self.pron.replace(" ", "")
-        pron2 = other.pron.replace(" ", "")
-
-        distance = Levenshtein().distance(pron1, pron2)
+        distance = Levenshtein().distance(self.pron, other.pron)
         norm = distance / longest
         return norm
 
@@ -77,7 +73,6 @@ class Lang2Lang:
 
         with open(self.path, "r") as f:
             column_names = f.readline().strip().split("\t")[2:]
-            print(column_names)
             for line in f:
                 if line[0:3] != lang1 or line[4:7] != lang2:
                     continue
@@ -262,7 +257,6 @@ class Lexicon:
         self.entries = {}
         with open(self.path, 'r') as f:
             for line in f:
-                print(line)
                 word, pron = re.split(r"\s", line.strip(), maxsplit=1)
                 entry = PronEntry(word, pron)
                 self.entries[word] = entry
@@ -274,7 +268,6 @@ class Lexicon:
         """
         if not path:
             path = self.path
-        print("Saving lexicon to", path)
         with open(path, "w") as f:
             for entry in self.entries.values():
                 f.write(str(entry) + "\n")
