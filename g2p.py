@@ -24,6 +24,45 @@ MAPPER_PATH = "/root/uni/g2p/g2p/mappers"
 
 NULL_PRON = "-"
 
+def generate_lexicon(word_list: str, model: str, output: str) -> str:
+    """
+    Generates and saves lexicon using the word list and model at the given paths. 
+    """
+    command = phon("--word_list", word_list, "--model", model)
+    if command.exit_code != 0:
+        raise LexiconError(f"Could not create lexicon for {word_list}")
+    entries = str(command).split("\n")
+
+    # Phonetisaurus does not include entries for words which have "no
+    # pronunciation" (i.e. where model did not return pronunciation for the word)
+    # To ensure consistency with the given word list, an "empty" entry (one with a pronunciation of "-") is 
+    # included for each of these words.
+    i = 0
+    with open(word_list, "r") as f:
+        for word in f:
+            word = word.strip()
+            entry = entries[i]
+            if not entry.startswith(word):
+                entries.insert(i, f"{word}\t{NULL_PRON}")
+            i += 1
+    with open(output, "w") as f:
+        result = "\n".join(entries)
+        f.write(result)
+    
+def extract_inventory(reference: str, output: str):
+    """
+    Extracts the phonemic inventory from the pronunciation lexicon at the given path and
+    saves it at the given out path.
+    """
+    inventory = set()
+    with open(reference, "r") as lexicon:
+        for line in lexicon:
+            _, pron = re.split("\t", line)
+            phonemes = [phon.strip() for phon in pron.split(" ")]
+            inventory.update(phonemes)
+    with open(output, "w") as inv:
+        inv.write(" ".join(inventory))
+
 class LexiconError(Exception):
     pass
 
@@ -195,37 +234,12 @@ class Converter:
         self._high_inv_path = os.path.join(self.INV_PATH, uuid4().hex)
         self._base_lex_path = os.path.join(self.LEX_PATH, uuid4().hex)
 
-        self._generate_lexicon()
-        self._extract_inventory()
+        generate_lexicon(self.word_list, self.model, self._base_lex_path)
+        extract_inventory(self._base_lex_path, self._high_inv_path)
 
         mapper_path = os.path.join(self.MAPPER_PATH, uuid4().hex)
         self.mapper = Mapper(self._high_inv_path, inventory, mapper_path)
         self.lexicon = Lexicon(self._base_lex_path)
-
-    def _generate_lexicon(self) -> str:
-        """
-        Generates and saves lexicon using the word list and model at the given paths. 
-        """
-        command = phon("--word_list", self.word_list, "--model", self.model)
-        if command.exit_code != 0:
-            raise LexiconError(f"Could not create lexicon for {self.word_list}")
-        entries = str(command).split("\n")
-
-        # Phonetisaurus does not include entries for words which have "no
-        # pronunciation" (i.e. where model did not return pronunciation for the word)
-        # To ensure consistency with the given word list, an "empty" entry (one with a pronunciation of "-") is 
-        # included for each of these words.
-        i = 0
-        with open(self.word_list, "r") as f:
-            for word in f:
-                word = word.strip()
-                entry = entries[i]
-                if not entry.startswith(word):
-                    entries.insert(i, f"{word}\t{NULL_PRON}")
-                i += 1
-        with open(self._base_lex_path, "w") as f:
-            result = "\n".join(entries)
-            f.write(result)
 
     def _extract_inventory(self):
         """
@@ -279,15 +293,14 @@ class Lexicon:
         for entry in self.entries.values():
             entry.pron = mapper.convert_pronunciation(entry.pron)
 
-    def update(self, prons):
+    def update(self, entries: Dict[str, str]):
         """
         Updates the pronunciations of each of the entries in this entries to
-        the given pronunciations (in the given order).
+        the given pronunciations.
         """
-        if len(prons) != len(self.entries):
-            raise LexiconError("Number of pronunciations is not equal to the number of entries")
-        for i, pron in enumerate(prons):
-            self.entries[i].pron = pron
+        print(entries)
+        for word, pron in entries.items():
+            self.entries[word].pron = pron
 
     def distances(self, other: "Lexicon"):
         """
@@ -335,4 +348,23 @@ class Lexicon:
         return self.__repr__()
 
 if __name__ == "__main__":
-    pass
+    word_lists = [
+        "/root/uni/g2p/g2p/lists/ces.swadesh",
+        "/root/uni/g2p/g2p/lists/deu.swadesh",
+        "/root/uni/g2p/g2p/lists/ita.swadesh",
+        "/root/uni/g2p/g2p/lists/por.swadesh",
+        "/root/uni/g2p/g2p/lists/slk.swadesh"
+    ]
+    models = [
+        "/root/uni/anylang/high_resource/high_resource_openfst/ces.wfst",
+        "/root/uni/anylang/high_resource/high_resource_openfst/deu.wfst",
+        "/root/uni/anylang/high_resource/high_resource_openfst/ita.wfst",
+        "/root/uni/anylang/high_resource/high_resource_openfst/por.wfst",
+        "/root/uni/anylang/high_resource/high_resource_openfst/slk.wfst",
+    ]
+    for i, word_list in enumerate(word_lists):
+        model = models[i]
+        lex = "/root/uni/g2p/g2p/lexicons/" + os.path.basename(word_list) + ".lex"
+        inv = "/root/uni/g2p/g2p/inventories/" + os.path.basename(word_list) + ".phon"
+        generate_lexicon(word_list, model, lex)
+        extract_inventory(lex, inv)
